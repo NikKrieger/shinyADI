@@ -78,7 +78,7 @@ ui <- page_sidebar(
         ),
         uiOutput("ref_area_spec_ui"),
         uiOutput("dataset_spec_ui"),
-        actionButton("execute_get_adi", "Calculate ADI"),
+        input_task_button("execute_get_adi", "Calculate ADI"),
         downloadButton("download_tbl", "Download ADI data"),
         downloadButton("download_plot", "Download ADI plot")
     ),
