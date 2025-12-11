@@ -1,3 +1,4 @@
+library(sf)
 library(readr)
 library(tigris)
 library(tibble)
@@ -15,12 +16,12 @@ options(tigris_use_cache = TRUE)
 states <- readRDS("data/states.rds")
 counties_tbl <- readRDS("data/counties_tbl.rds")
 
-current_year <- as.POSIXlt(Sys.Date())$year + 1900
+max_year <- 2023
 
 dataset_options_tbl <-
     bind_rows(
-        tibble(dataset = "acs5", year = 2009:current_year),
-        tibble(dataset = "acs1", year = setdiff(2007:current_year, 2020)),
+        tibble(dataset = "acs5", year = 2009:max_year),
+        tibble(dataset = "acs1", year = setdiff(2007:max_year, 2020)),
         tibble(dataset = "acs3", year = 2007:2013),
         tibble(dataset = "decennial", year = c(2000, 2010, 2020))
     )
@@ -57,7 +58,7 @@ server <- function(input, output, session) {
     year_validator$add_rule("year", sv_required())
     year_validator$add_rule(
         "year",
-        sv_in_set(c(2000, 2007:current_year), set_limit = Inf)
+        sv_in_set(c(2000, 2007:max_year), set_limit = Inf)
     )
     year_validator$enable()
     dec_year <- reactive({
@@ -306,11 +307,7 @@ server <- function(input, output, session) {
                 keep_indicators = TRUE
             )
 
-        if (contains_ak_hi_pr(ref_area_type(), state, geoid, zcta)) {
-            shift_geometry(adi_results)
-        } else {
-            adi_results
-        }
+        shift_geo2(adi_results, input$geography)
     }) |>
         bindEvent(input$execute_get_adi)
 
