@@ -1,14 +1,3 @@
-# Source - https://stackoverflow.com/a/48434444
-# Posted by Cristian E. Nuno, modified by community. See post 'Timeline' for change history
-# Retrieved 2025-11-26, License - CC BY-SA 3.0
-
-# install necessary packages
-# install.packages( pkgs = c( "devtools", "shiny", "shinydashboard" ) )
-# install the development version of leaflet from Github
-# devtools::install_github( repo = "rstudio/leaflet" )
-
-
-# load necessary packages
 library(readr)
 library(tigris)
 library(tibble)
@@ -22,7 +11,7 @@ library(shinyvalidate)
 library(shiny)
 library(bslib)
 source("helpers.R")
-
+options(tigris_use_cache = TRUE)
 states <- readRDS("data/states.rds")
 counties_tbl <- readRDS("data/counties_tbl.rds")
 
@@ -196,7 +185,7 @@ server <- function(input, output, session) {
             actionButton("select_all_counties", "Select all counties"),
             actionButton("clear_all_counties", "Clear all counties")
         )
-    }) # |> bindEvent(input$state)
+    })
 
     # County select all button
     observe({
@@ -230,7 +219,7 @@ server <- function(input, output, session) {
     )
     geoid_validator$enable()
     geoid_vector <- reactive({
-        req(geoid_validator$is_valid()) # req(nchar(input$geoid), geoid_validator$is_valid())
+        req(geoid_validator$is_valid())
         as.character(str_extract_all(input$geoid, "\\d+", simplify = TRUE))
     })
 
@@ -341,12 +330,6 @@ server <- function(input, output, session) {
         )
     }) |>
         bindEvent(adi_sf_tbl())
-
-    # measure_sym <- reactive({browser()
-    #     sym(input$measure)})
-    # legend_label <- reactive({
-    #
-    # })
 
     ggobj <- reactive({
         measure_sym <- sym(input$measure)
