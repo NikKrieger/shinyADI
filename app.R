@@ -346,12 +346,17 @@ server <- function(input, output, session) {
         ggplot(
             mutate(
                 adi_sf_tbl(),
-                tooltip = paste0(NAME, ": ", round(!!measure_sym, 2))
+                tooltip = paste0(NAME, ": ", round(!!measure_sym, 2)),
+                data_id = make.unique(str_replace_all(NAME, "'", ""))
             ),
             aes(fill = !!measure_sym)
         ) +
-            geom_sf_interactive(aes(tooltip = tooltip, data_id = NAME)) +
-            scale_fill_viridis_c(direction = -1, na.value = "red", name = legend_label)
+            geom_sf_interactive(aes(tooltip = tooltip, data_id = data_id)) +
+            scale_fill_viridis_c(
+                direction = -1,
+                na.value = "red",
+                name = legend_label
+            )
     }) |>
         bindEvent(input$measure, adi_sf_tbl(), ignoreInit = TRUE)
 
