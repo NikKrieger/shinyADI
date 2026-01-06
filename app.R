@@ -13,36 +13,32 @@ library(shiny)
 library(bslib)
 source("helpers.R")
 options(tigris_use_cache = TRUE)
-states <- readRDS("data/states.rds")
 counties_tbl <- readRDS("data/counties_tbl.rds")
 
-max_year <- 2023
-
-dataset_options_tbl <-
-    bind_rows(
-        tibble(dataset = "acs5", year = 2009:max_year),
-        tibble(dataset = "acs1", year = setdiff(2007:max_year, 2020)),
-        tibble(dataset = "acs3", year = 2007:2013),
-        tibble(dataset = "decennial", year = c(2000, 2010, 2020))
-    )
-
+adi_availability <-
+    sociome::dataset_year_geography_availability[
+        sociome::dataset_year_geography_availability$adi,
+        c("geography", "year", "dataset")
+    ]
 
 # User interface ----
 ui <- page_sidebar(
     title = "sociome",
     sidebar = sidebar(
-        numericInput("year", "Year:", value = 2020),
         selectInput(
             "geography",
-            "I want an ADI value for each",
+            "I want an ADI value for each:",
             choices =
                 c("state", "county", "tract", "block group", ZCTA = "zcta")
         ),
         uiOutput("ref_area_ui"),
+        uiOutput("year_ui"),
+        uiOutput("county_ui"),
         uiOutput("dataset_spec_ui"),
         input_task_button("execute_get_adi", "Calculate ADI"),
         uiOutput("measure_selection_ui"),
-        uiOutput("download_buttons")
+        uiOutput("download_buttons"),
+        width = 325
     ),
     navset_tab(
         nav_panel(title = "plot", girafeOutput("plot")),
@@ -53,20 +49,15 @@ ui <- page_sidebar(
 # Server logic
 server <- function(input, output, session) {
 
-    # Year
-    year_validator <- InputValidator$new()
-    year_validator$add_rule("year", sv_required())
-    year_validator$add_rule(
-        "year",
-        sv_in_set(c(2000, 2007:max_year), set_limit = Inf)
-    )
-    year_validator$enable()
-    dec_year <- reactive({
-        req(year_validator$is_valid())
-        trunc(input$year / 10) * 10
+    adi_availability_for_geography <- reactive({
+        adi_availability[
+            adi_availability$geography == input$geography,
+            ,
+            drop = FALSE
+        ]
     })
 
-   # Geography
+    # Geography
     output$ref_area_type_ui <- renderUI({
         switch(
             input$geography,
@@ -85,11 +76,12 @@ server <- function(input, output, session) {
                     label = NULL,
                     choices =
                         c("in these states:" = "multiple_states_ref_area",
-                          "in a list of counties in one state:" = "counties_ref_area",
+                          "in a selection of counties in this state:" = "counties_ref_area",
                           "from these GEOIDs:" = "geoids_ref_area")
                 )
         )
     })
+
     ref_area_type <- reactive({
         switch(
             input$geography,
@@ -104,35 +96,38 @@ server <- function(input, output, session) {
 
     output$ref_area_ui <- renderUI({
         tagList(
-            switch(input$geography, zcta = NULL, uiOutput("ref_area_type_ui")),
+            switch(
+                input$geography,
+                zcta = NULL,
+                uiOutput("ref_area_type_ui")
+            ),
             uiOutput("ref_area_spec_ui")
         )
     })
 
-
     output$ref_area_spec_ui <- renderUI({
         switch(
-            ref_area_type(),
+            req(ref_area_type()),
             multiple_states_ref_area =
                 tagList(
                     selectInput(
                         "state",
                         label = NULL,
-                        choices = states,
+                        choices = sociome::state_geoids,
                         multiple = TRUE
                     ),
-                    actionButton("select_all_states", "Select all states"),
-                    actionButton("clear_all_states", "Clear all states")
+                    fluidRow(
+                        column(6,
+                        actionButton("select_all_states", "Select all states")),
+                        column(6, actionButton("clear_all_states", "Clear all states"))
+                    )
                 ),
             counties_ref_area =
-                tagList(
-                    selectInput(
-                        "state",
-                        label = "State:",
-                        choices = states,
-                        multiple = FALSE
-                    ),
-                    uiOutput("county_ui")
+                selectInput(
+                    "state",
+                    label = "State:",
+                    choices = sociome::state_geoids,
+                    multiple = FALSE
                 ),
             geoids_ref_area =
                 textAreaInput(
@@ -147,8 +142,7 @@ server <- function(input, output, session) {
                     placeholder = "Enter 5-digit ZCTAs separated by , ; ' \" | or whitespace. \nElements under 5 digits will match all ZCTAs beginnig with those digits."
                 )
         )
-    }) |>
-        bindEvent(ref_area_type())
+    })
 
     # Multiple states: select all button
     observe({
@@ -165,11 +159,35 @@ server <- function(input, output, session) {
     }) |>
         bindEvent(input$clear_all_states)
 
+    # Year
+    output$year_ui <- renderUI({
+        selectInput(
+            "year_char",
+            label =
+                if (req(ref_area_type()) == "counties_ref_area") {
+                    tooltip(
+                        list("Year:", icon("info-circle")),
+                        "The year must be selected before the counties because counties occasionally change."
+                    )
+                } else "Year:",
+            choices =
+                sort(
+                    unique(adi_availability_for_geography()$year),
+                    decreasing = TRUE
+                )
+        )
+    })
+
+    year_int <- reactive({
+        if (!is.null(input$year_char)) as.integer(input$year_char)
+    })
+
     # County_choices
     county_choices <- reactive({
-        req(ref_area_type() == "counties_ref_area")
+        req(ref_area_type() == "counties_ref_area", input$state)
         counties_tbl |>
-            filter(year == dec_year(), state_fips == input$state) |>
+            filter(year <= year_int(), state_fips == input$state) |>
+            slice_max(year) |>
             select(county_name, county_fips) |>
             arrange(county_name) |>
             deframe()
@@ -183,8 +201,16 @@ server <- function(input, output, session) {
                 choices = county_choices(),
                 multiple = TRUE
             ),
-            actionButton("select_all_counties", "Select all counties"),
-            actionButton("clear_all_counties", "Clear all counties")
+            fluidRow(
+                column(
+                    width = 6,
+                    actionButton("select_all_counties", "Select all counties")
+                ),
+                column(
+                    width = 6,
+                    actionButton("clear_all_counties", "Clear all counties")
+                )
+            )
         )
     })
 
@@ -247,30 +273,34 @@ server <- function(input, output, session) {
         as.character(str_extract_all(input$zcta, "\\d+", simplify = TRUE))
     })
 
-
     ############################################################################
     # data set
     output$dataset_spec_ui <- renderUI({
-        req(year_validator$is_valid())
+        choices <-
+            if (req(year_int()) == 2000) {
+                "decennial"
+            } else {
+                available_datasets <-
+                    adi_availability_for_geography()[
+                        adi_availability_for_geography()$year == year_int(),
+                        "dataset",
+                        drop = TRUE
+                    ]
+                all_datasets <-
+                    c("acs5", "acs3", "acs1", "decennial + acs5" = "decennial")
+                all_datasets[all_datasets %in% available_datasets]
+            }
         radioButtons(
             "dataset_spec",
             "Select the desired data set:",
-            choices =
-                dataset_options_tbl[
-                    dataset_options_tbl$year == input$year,
-                    "dataset",
-                    drop = TRUE
-                ]
+            choices = choices
         )
-    })
-
-
+    }) |>
+        bindEvent(year_int())
 
     ############################################################################
     # Calculate ADI
     adi_sf_tbl <- reactive({
-        req(year_validator$is_valid())
-
         switch(
             ref_area_type(),
             multiple_states_ref_area = {
@@ -301,7 +331,7 @@ server <- function(input, output, session) {
                 county = county,
                 geoid = geoid,
                 zcta = zcta,
-                year = input$year,
+                year = year_int(),
                 dataset = input$dataset_spec,
                 geometry = TRUE,
                 keep_indicators = TRUE

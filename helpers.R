@@ -48,26 +48,51 @@ shift_geo2 <- function(adi_results, geography) {
 
 # This code was used to obtain the states and counties_tbl objects
 #
+# library(tidycensus)
+# library(tigris)
 # library(tidyverse)
+# # Try to grab tigris::counties() for every year 2000-2025
+# counties_results <-
+#   lapply(
+#     set_names(2000:2025),
+#     \(yr) {
+#       tryCatch(
+#         tigris::counties(cb = TRUE, year = yr) |>
+#           as_tibble() |>
+#           reframe(
+#             year = yr,
+#             state_fips = STATEFP,
+#             county_fips = COUNTYFP,
+#             county_name = NAME
+#           ) |>
+#           filter(state_fips %in% sociome::state_geoids),
+#         error = identity
+#       )
+#     }
+#   )
+#
 # counties_tbl <-
-#     map_dfr(
-#         c(2000, 2010, 2020),
-#         ~tigris::counties(cb = TRUE, year = .x) |>
-#             as_tibble() |>
-#             reframe(
-#                 year = .x,
-#                 state_fips = STATEFP,
-#                 county_fips = COUNTYFP,
-#                 county_name = NAME
-#             )
-#     ) |>
-#     filter(!(state_fips %in% c(60, 78, 69, 66))) |>
-#     inner_join(
-#         distinct(tidycensus::fips_codes, state_name, state_fips = state_code),
-#         by = "state_fips"
-#     ) |>
-#     select(year, state_fips, state_name, county_fips, county_name) |>
-#     arrange(desc(year), state_name, county_name)
-# states <- deframe(distinct(counties_tbl, state_name, state_fips))
+#   counties_results |>
+#   keep(is_tibble) |>
+#   map_at(
+#     c("2010", "2013"),
+#     mutate,
+#     # These two years need to be re-encoded from latin1 to UTF-8
+#     county_name = iconv(county_name, "latin1", "UTF-8")
+#   ) |>
+#   list_rbind() |>
+#   arrange(state_fips, year, county_fips) |>
+#   # Make a unique row for each state/year combination. Each row has a nested
+#   # data frame containing that state's counties in that year.
+#   nest(counties = c(county_fips, county_name)) |>
+#   # Remove the state+year combo if its county list if it is the same as the
+#   # prior year's county list.
+#   filter(
+#     row_number() == 1 |
+#       state_fips != lag(state_fips) |
+#       !map2_lgl(counties, lag(counties), identical)
+#   ) |>
+#   unnest(counties) |>
+#   arrange(state_fips, year, county_fips)
+#
 # saveRDS(counties_tbl, here::here("data", "counties_tbl.rds"))
-# saveRDS(states, here::here("data", "states.rds"))
